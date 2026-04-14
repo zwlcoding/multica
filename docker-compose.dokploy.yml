@@ -15,7 +15,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-multica}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - pgdata_v2:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-multica} -d ${POSTGRES_DB:-multica}"]
       interval: 5s
@@ -62,7 +62,7 @@ services:
       - dokploy-network
 
 volumes:
-  pgdata:
+  pgdata_v2:
 
 networks:
   dokploy-network:
