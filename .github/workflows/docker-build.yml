@@ -68,6 +68,7 @@ jobs:
           tags: ${{ env.WEB_IMAGE }}:latest
           build-args: |
             REMOTE_API_URL=https://multica-api.qdkf.net
+            NEXT_PUBLIC_API_URL=https://multica-api.qdkf.net
             NEXT_PUBLIC_WS_URL=wss://multica-api.qdkf.net/ws
           cache-from: type=gha
           cache-to: type=gha,mode=max
