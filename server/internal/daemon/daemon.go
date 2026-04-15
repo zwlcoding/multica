@@ -86,6 +86,17 @@ func (d *Daemon) Run(ctx context.Context) error {
 		return err
 	}
 
+	// If no runtimes yet (empty watched list), run one sync cycle to discover
+	// workspaces from the API before giving up. workspaceSyncLoop normally
+	// handles this, but the runtime check below would fail before it runs.
+	if len(d.allRuntimeIDs()) == 0 {
+		d.syncWorkspacesFromAPI(ctx)
+		// syncWorkspacesFromAPI writes to config; reload and register.
+		if err := d.loadWatchedWorkspaces(ctx); err != nil {
+			return err
+		}
+	}
+
 	runtimeIDs := d.allRuntimeIDs()
 	if len(runtimeIDs) == 0 {
 		return fmt.Errorf("no runtimes registered")
@@ -156,8 +167,13 @@ func (d *Daemon) loadWatchedWorkspaces(ctx context.Context) error {
 		return fmt.Errorf("load CLI config: %w", err)
 	}
 
+	// It's fine to start with an empty watched list — workspaceSyncLoop runs
+	// immediately on startup and will populate the list from the server. The
+	// daemon also accepts HTTP POST /watch for explicit adds from clients
+	// like the Desktop app.
 	if len(cfg.WatchedWorkspaces) == 0 {
-		return fmt.Errorf("no watched workspaces configured: run 'multica workspace watch <id>' to add one")
+		d.logger.Info("no watched workspaces in config; workspaceSyncLoop will populate from API")
+		return nil
 	}
 
 	var registered int
@@ -263,6 +279,7 @@ func (d *Daemon) registerRuntimesForWorkspace(ctx context.Context, workspaceID s
 		"daemon_id":    d.cfg.DaemonID,
 		"device_name":  d.cfg.DeviceName,
 		"cli_version":  d.cfg.CLIVersion,
+		"launched_by":  d.cfg.LaunchedBy,
 		"runtimes":     runtimes,
 	}
 
@@ -350,6 +367,9 @@ func (d *Daemon) syncWorkspacesFromAPI(ctx context.Context) {
 
 	var added int
 	for _, ws := range workspaces {
+		if cfg.IsUnwatched(ws.ID) {
+			continue // user explicitly opted out
+		}
 		if cfg.AddWatchedWorkspace(ws.ID, ws.Name) {
 			added++
 			d.logger.Info("workspace sync: discovered new workspace", "workspace_id", ws.ID, "name", ws.Name)
@@ -525,7 +545,18 @@ func (d *Daemon) handlePing(ctx context.Context, rt Runtime, pingID string) {
 		}
 	}()
 
-	result := <-session.Result
+	var result agent.Result
+	select {
+	case result = <-session.Result:
+	case <-pingCtx.Done():
+		d.logger.Warn("ping timed out waiting for result", "runtime_id", rt.ID, "ping_id", pingID)
+		d.client.ReportPingResult(ctx, rt.ID, pingID, map[string]any{
+			"status":      "failed",
+			"error":       "ping context cancelled while waiting for result",
+			"duration_ms": time.Since(start).Milliseconds(),
+		})
+		return
+	}
 	durationMs := time.Since(start).Milliseconds()
 
 	if result.Status == "completed" {
@@ -551,6 +582,19 @@ func (d *Daemon) handlePing(ctx context.Context, rt Runtime, pingID string) {
 
 // handleUpdate performs the CLI update when triggered by the server via heartbeat.
 func (d *Daemon) handleUpdate(ctx context.Context, runtimeID string, update *PendingUpdate) {
+	// Desktop-managed daemons share their CLI binary with the Electron app,
+	// which is responsible for shipping and replacing it. Letting the daemon
+	// self-update would just get overwritten on the next Desktop launch and
+	// could brick the embedded binary mid-update. Refuse cleanly.
+	if d.cfg.LaunchedBy == "desktop" {
+		d.logger.Info("refusing CLI self-update: daemon is managed by Desktop", "runtime_id", runtimeID, "update_id", update.ID)
+		d.client.ReportUpdateResult(ctx, runtimeID, update.ID, map[string]any{
+			"status": "failed",
+			"error":  "CLI is managed by Multica Desktop — update the Desktop app to upgrade the CLI",
+		})
+		return
+	}
+
 	// Prevent concurrent update attempts.
 	if !d.updating.CompareAndSwap(false, true) {
 		d.logger.Warn("update already in progress, ignoring", "runtime_id", runtimeID, "update_id", update.ID)
@@ -972,6 +1016,20 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, taskLo
 	if env.CodexHome != "" {
 		agentEnv["CODEX_HOME"] = env.CodexHome
 	}
+	// Inject user-configured custom environment variables (e.g. ANTHROPIC_API_KEY,
+	// ANTHROPIC_BASE_URL for router/proxy mode, or CLAUDE_CODE_USE_BEDROCK for
+	// Bedrock). These are set per-agent via the agent settings UI.
+	// Critical internal variables are blocklisted to prevent accidental or
+	// malicious override of daemon-set values.
+	if task.Agent != nil {
+		for k, v := range task.Agent.CustomEnv {
+			if isBlockedEnvKey(k) {
+				d.logger.Warn("custom_env: blocked key skipped", "key", k)
+				continue
+			}
+			agentEnv[k] = v
+		}
+	}
 	backend, err := agent.New(provider, agent.Config{
 		ExecutablePath: entry.Path,
 		Env:            agentEnv,
@@ -1078,6 +1136,17 @@ func (d *Daemon) executeAndDrain(ctx context.Context, backend agent.Backend, pro
 		return agent.Result{}, 0, err
 	}
 
+	// Create an independent drain deadline so we don't block forever if the
+	// backend's internal timeout fails to produce a Result (e.g. scanner
+	// stuck on a hung stdout pipe). The extra 30 s gives the backend time
+	// to clean up after its own timeout fires.
+	drainTimeout := opts.Timeout + 30*time.Second
+	if opts.Timeout == 0 {
+		drainTimeout = 21 * time.Minute
+	}
+	drainCtx, drainCancel := context.WithTimeout(ctx, drainTimeout)
+	defer drainCancel()
+
 	var toolCount atomic.Int32
 	go func() {
 		var seq atomic.Int32
@@ -1135,77 +1204,92 @@ func (d *Daemon) executeAndDrain(ctx context.Context, backend agent.Backend, pro
 			}
 		}()
 
-		for msg := range session.Messages {
-			switch msg.Type {
-			case agent.MessageToolUse:
-				n := toolCount.Add(1)
-				taskLog.Info(fmt.Sprintf("tool #%d: %s", n, msg.Tool))
-				if msg.CallID != "" {
+		for {
+			select {
+			case msg, ok := <-session.Messages:
+				if !ok {
+					goto drainDone
+				}
+				switch msg.Type {
+				case agent.MessageToolUse:
+					n := toolCount.Add(1)
+					taskLog.Info(fmt.Sprintf("tool #%d: %s", n, msg.Tool))
+					if msg.CallID != "" {
+						mu.Lock()
+						callIDToTool[msg.CallID] = msg.Tool
+						mu.Unlock()
+					}
+					s := seq.Add(1)
 					mu.Lock()
-					callIDToTool[msg.CallID] = msg.Tool
+					batch = append(batch, TaskMessageData{
+						Seq:   int(s),
+						Type:  "tool_use",
+						Tool:  msg.Tool,
+						Input: msg.Input,
+					})
+					mu.Unlock()
+				case agent.MessageToolResult:
+					s := seq.Add(1)
+					output := msg.Output
+					if len(output) > 8192 {
+						output = output[:8192]
+					}
+					toolName := msg.Tool
+					if toolName == "" && msg.CallID != "" {
+						mu.Lock()
+						toolName = callIDToTool[msg.CallID]
+						mu.Unlock()
+					}
+					mu.Lock()
+					batch = append(batch, TaskMessageData{
+						Seq:    int(s),
+						Type:   "tool_result",
+						Tool:   toolName,
+						Output: output,
+					})
+					mu.Unlock()
+				case agent.MessageThinking:
+					if msg.Content != "" {
+						mu.Lock()
+						pendingThinking.WriteString(msg.Content)
+						mu.Unlock()
+					}
+				case agent.MessageText:
+					if msg.Content != "" {
+						taskLog.Debug("agent", "text", truncateLog(msg.Content, 200))
+						mu.Lock()
+						pendingText.WriteString(msg.Content)
+						mu.Unlock()
+					}
+				case agent.MessageError:
+					taskLog.Error("agent error", "content", msg.Content)
+					s := seq.Add(1)
+					mu.Lock()
+					batch = append(batch, TaskMessageData{
+						Seq:     int(s),
+						Type:    "error",
+						Content: msg.Content,
+					})
 					mu.Unlock()
 				}
-				s := seq.Add(1)
-				mu.Lock()
-				batch = append(batch, TaskMessageData{
-					Seq:   int(s),
-					Type:  "tool_use",
-					Tool:  msg.Tool,
-					Input: msg.Input,
-				})
-				mu.Unlock()
-			case agent.MessageToolResult:
-				s := seq.Add(1)
-				output := msg.Output
-				if len(output) > 8192 {
-					output = output[:8192]
-				}
-				toolName := msg.Tool
-				if toolName == "" && msg.CallID != "" {
-					mu.Lock()
-					toolName = callIDToTool[msg.CallID]
-					mu.Unlock()
-				}
-				mu.Lock()
-				batch = append(batch, TaskMessageData{
-					Seq:    int(s),
-					Type:   "tool_result",
-					Tool:   toolName,
-					Output: output,
-				})
-				mu.Unlock()
-			case agent.MessageThinking:
-				if msg.Content != "" {
-					mu.Lock()
-					pendingThinking.WriteString(msg.Content)
-					mu.Unlock()
-				}
-			case agent.MessageText:
-				if msg.Content != "" {
-					taskLog.Debug("agent", "text", truncateLog(msg.Content, 200))
-					mu.Lock()
-					pendingText.WriteString(msg.Content)
-					mu.Unlock()
-				}
-			case agent.MessageError:
-				taskLog.Error("agent error", "content", msg.Content)
-				s := seq.Add(1)
-				mu.Lock()
-				batch = append(batch, TaskMessageData{
-					Seq:     int(s),
-					Type:    "error",
-					Content: msg.Content,
-				})
-				mu.Unlock()
+			case <-drainCtx.Done():
+				goto drainDone
 			}
 		}
-
+	drainDone:
 		close(done)
 		flush()
 	}()
 
-	result := <-session.Result
-	return result, toolCount.Load(), nil
+	select {
+	case result := <-session.Result:
+		return result, toolCount.Load(), nil
+	case <-drainCtx.Done():
+		return agent.Result{
+			Status: "timeout",
+			Error:  "agent did not produce result within drain timeout",
+		}, toolCount.Load(), nil
+	}
 }
 
 func mergeUsage(a, b map[string]agent.TokenUsage) map[string]agent.TokenUsage {
@@ -1287,4 +1371,19 @@ func convertSkillsForEnv(skills []SkillData) []execenv.SkillContextForEnv {
 		}
 	}
 	return result
+}
+
+// isBlockedEnvKey returns true if the key must not be overridden by user-
+// configured custom_env. This prevents accidental or malicious override of
+// daemon-internal variables and critical system paths.
+func isBlockedEnvKey(key string) bool {
+	upper := strings.ToUpper(key)
+	if strings.HasPrefix(upper, "MULTICA_") {
+		return true
+	}
+	switch upper {
+	case "HOME", "PATH", "USER", "SHELL", "TERM", "CODEX_HOME":
+		return true
+	}
+	return false
 }
