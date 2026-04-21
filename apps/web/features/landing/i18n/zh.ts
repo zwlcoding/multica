@@ -1,6 +1,8 @@
 import { githubUrl } from "../components/shared";
 import type { LandingDict } from "./types";
 
+export const ALLOW_SIGNUP = process.env.NEXT_PUBLIC_ALLOW_SIGNUP !== "false";
+
 export const zh: LandingDict = {
   header: {
     github: "GitHub",
@@ -13,8 +15,9 @@ export const zh: LandingDict = {
     headlineLine2: "\u4e0d\u662f\u4eba\u7c7b\u3002",
     subheading:
       "Multica \u662f\u4e00\u4e2a\u5f00\u6e90\u5e73\u53f0\uff0c\u5c06\u7f16\u7801 Agent \u53d8\u6210\u771f\u6b63\u7684\u961f\u53cb\u3002\u5206\u914d\u4efb\u52a1\u3001\u8ddf\u8e2a\u8fdb\u5ea6\u3001\u79ef\u7d2f\u6280\u80fd\u2014\u2014\u5728\u4e00\u4e2a\u5730\u65b9\u7ba1\u7406\u4f60\u7684\u4eba\u7c7b + Agent \u56e2\u961f\u3002",
-    cta: "\u514d\u8d39\u5f00\u59cb",
-    worksWith: "\u652f\u6301",
+    cta: "免费开始",
+    downloadDesktop: "下载桌面端",
+    worksWith: "支持",
     imageAlt: "Multica \u770b\u677f\u89c6\u56fe\u2014\u2014\u4eba\u7c7b\u548c Agent \u534f\u540c\u7ba1\u7406\u4efb\u52a1",
   },
 
@@ -119,9 +122,10 @@ export const zh: LandingDict = {
     headlineFaded: "\u53ea\u9700\u4e00\u5c0f\u65f6\u3002",
     steps: [
       {
-        title: "\u6ce8\u518c\u5e76\u521b\u5efa\u5de5\u4f5c\u533a",
-        description:
-          "\u8f93\u5165\u90ae\u7bb1\uff0c\u9a8c\u8bc1\u7801\u786e\u8ba4\uff0c\u5373\u53ef\u8fdb\u5165\u3002\u5de5\u4f5c\u533a\u81ea\u52a8\u521b\u5efa\u2014\u2014\u65e0\u9700\u8bbe\u7f6e\u5411\u5bfc\uff0c\u65e0\u9700\u914d\u7f6e\u8868\u5355\u3002",
+        title: ALLOW_SIGNUP ? "注册并创建您的工作空间" : "登录到您的工作空间",
+        description: ALLOW_SIGNUP
+          ? "输入您的邮箱，验证代码后即可使用。工作空间会自动创建——无需设置向导或配置表单。"
+          : "输入您的邮箱，验证代码后即可登录到您的工作空间——无需设置向导或配置表单。",
       },
       {
         title: "\u5b89\u88c5 CLI \u5e76\u8fde\u63a5\u4f60\u7684\u673a\u5668",
@@ -222,7 +226,8 @@ export const zh: LandingDict = {
         links: [
           { label: "\u529f\u80fd\u7279\u6027", href: "#features" },
           { label: "\u5982\u4f55\u5de5\u4f5c", href: "#how-it-works" },
-          { label: "\u66f4\u65b0\u65e5\u5fd7", href: "/changelog" },
+          { label: "更新日志", href: "/changelog" },
+          { label: "桌面端", href: "https://github.com/multica-ai/multica/releases/latest" },
         ],
       },
       resources: {
@@ -277,6 +282,128 @@ export const zh: LandingDict = {
       fixes: "问题修复",
     },
     entries: [
+      {
+        version: "0.2.11",
+        date: "2026-04-21",
+        title: "桌面应用跨平台打包、CLI 自更新与看板分页",
+        changes: [],
+        features: [
+          "桌面应用跨平台打包——同一条发布流水线产出 macOS、Windows 和 Linux 安装包",
+          "新增 `multica update` 自更新命令——无需重装即可升级 CLI 和本地 Daemon",
+          "Issue 看板所有状态列都支持分页（不再只是 Done 列），大积压下依然流畅",
+        ],
+        fixes: [
+          "本地 Daemon 对 Agent 执行强制端到端工作区隔离（安全）",
+          "Windows 下 Daemon 终端关闭后继续常驻，后台 Agent 不再被意外终止",
+          "看板卡片重新显示描述预览——列表查询不再丢掉 description 字段",
+          "OpenClaw Agent 改为从 Agent 元数据读取真实模型，不再回退到默认值",
+          "评论 Markdown 全链路保留——移除会误伤格式的 HTML sanitizer",
+        ],
+      },
+      {
+        version: "0.2.8",
+        date: "2026-04-20",
+        title: "Agent 模型选择、Kimi Runtime 与自部署登录",
+        changes: [],
+        features: [
+          "Agent 新增 `model` 字段及按 Provider 聚合的模型下拉框——可在界面或通过 `multica agent create/update --model` 为每个 Agent 选择 LLM 模型，并从各 Runtime CLI 实时发现可用模型",
+          "新增 Kimi CLI Agent Runtime（Moonshot AI 的 `kimi-cli`，基于 ACP），支持模型选择、自动授权工具权限以及流式工具调用渲染",
+          "评论和回复编辑器新增放大按钮，便于撰写长文本",
+        ],
+        fixes: [
+          "Agent 工作流将“发布结果评论”提升为独立的显式步骤，确保最终回复送达 Issue 而不是只留在终端输出",
+          "通过 Cmd+K 切换 Issue 时不再出现其他 Issue 的 Agent 实时状态残留",
+          "自部署会话 Cookie 的 Secure 标志改由 `FRONTEND_ORIGIN` 协议决定——HTTP 部署不再因浏览器丢弃 Cookie 导致登录失败；`COOKIE_DOMAIN=<ip>` 会自动回退到 host-only 并输出警告",
+        ],
+      },
+      {
+        version: "0.2.7",
+        date: "2026-04-18",
+        title: "编辑器创建子 Issue、自部署门禁与 MCP",
+        changes: [],
+        features: [
+          "直接从编辑器气泡菜单将选中文本创建为子 Issue",
+          "自部署实例账户门禁——`ALLOW_SIGNUP` 和 `ALLOWED_EMAIL_*` 环境变量限制注册",
+          "Agent 新增 `mcp_config` 字段恢复 MCP 支持",
+          "桌面应用每小时检查更新，设置中新增手动检查按钮",
+        ],
+        fixes: [
+          "网页已登录时将会话交接给桌面应用",
+          "修复 `?next=` 开放重定向漏洞",
+          "OpenClaw 停止传递不支持的参数，正确传递 AgentInstructions",
+        ],
+      },
+      {
+        version: "0.2.5",
+        date: "2026-04-17",
+        title: "CLI Autopilot、Cmd+K 与 Daemon 身份",
+        changes: [],
+        features: [
+          "CLI `autopilot` 命令，管理定时和触发式自动化",
+          "CLI `issue subscriber` 订阅管理命令",
+          "Cmd+K 命令面板扩展——主题切换、快速创建 Issue/项目、复制链接、切换工作区",
+          "Issue 列表卡片可选显示项目和子 Issue 进度",
+          "Daemon 持久化 UUID 身份——CLI 和桌面应用共用同一个 daemon，跨重启和机器迁移保持一致",
+          "唯一所有者退出工作区的前置检查",
+          "评论折叠状态跨会话持久化",
+        ],
+        fixes: [
+          "Agent 现在在任意 Issue 状态下都会响应评论触发",
+          "修复 Codex 沙箱在 macOS 上的网络访问配置",
+          "编辑器气泡菜单改用 @floating-ui/dom 重写，滚动时正确隐藏",
+          "Autopilot 创建者自动订阅其生成的 Issue",
+          "Autopilot run-only 任务正确解析工作区 ID",
+          "桌面应用 `shell.openExternal` 限制仅允许 http/https 协议（安全）",
+          "重名 Agent 创建返回 409 而非静默失败",
+          "桌面应用新建标签页继承当前工作区",
+        ],
+      },
+      {
+        version: "0.2.1",
+        date: "2026-04-16",
+        title: "新增 Agent 运行时",
+        changes: [],
+        features: [
+          "支持 GitHub Copilot CLI 运行时",
+          "支持 Cursor Agent CLI 运行时",
+          "支持 Pi Agent 运行时",
+          "工作区 URL 改造——slug 优先路由（`/{slug}/issues`），旧链接自动重定向",
+        ],
+        fixes: [
+          "Codex 同一 Issue 下跨任务恢复会话线程",
+          "Codex 回合错误正确抛出，不再报告空输出",
+          "工作区用量按任务完成时间正确分桶",
+          "Autopilot 运行历史行整行可点击",
+          "Daemon 和 GC 端点加强工作区隔离校验（安全）",
+          "邀请邮件中的工作区和邀请人名称进行 HTML 转义",
+          "桌面应用开发版和生产版现在可以同时运行",
+        ],
+      },
+      {
+        version: "0.2.0",
+        date: "2026-04-15",
+        title: "桌面应用、Autopilot 与邀请",
+        changes: [],
+        features: [
+          "macOS 桌面应用——原生 Electron 应用，支持标签页系统、内置 Daemon 管理、沉浸模式和自动更新",
+          "Autopilot——Agent 定时和触发式自动化任务",
+          "工作区邀请，支持邮件通知和专用接受页面",
+          "Agent 自定义 CLI 参数，支持高级运行时配置",
+          "聊天界面重设计，新增未读追踪和会话管理优化",
+          "创建 Agent 对话框显示运行时所有者和 Mine/All 筛选",
+        ],
+        improvements: [
+          "Inter 字体 + CJK 回退，中英文自动间距",
+          "侧边栏用户菜单改为整行弹出面板",
+          "WebSocket ping/pong 心跳检测断线连接",
+          "普通成员现在可以创建 Agent 和管理自己的 Skills",
+        ],
+        fixes: [
+          "Agent 在已参与的线程收到回复时正确触发",
+          "自部署：Docker 本地上传文件持久化，WebSocket URL 自动适配局域网",
+          "Cmd+K 最近 Issue 列表状态过期",
+        ],
+      },
       {
         version: "0.1.33",
         date: "2026-04-14",

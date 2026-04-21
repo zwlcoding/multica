@@ -1,6 +1,8 @@
 import { create } from "zustand";
 import type { User, StorageAdapter } from "../types";
-import type { ApiClient } from "../api/client";
+import { identify as identifyAnalytics, resetAnalytics } from "../analytics";
+import { ApiError, type ApiClient } from "../api/client";
+import { setCurrentWorkspace } from "../platform/workspace-storage";
 
 export interface AuthStoreOptions {
   api: ApiClient;
@@ -56,10 +58,17 @@ export function createAuthStore(options: AuthStoreOptions) {
       try {
         const user = await api.getMe();
         set({ user, isLoading: false });
-      } catch {
-        api.setToken(null);
-        api.setWorkspaceId(null);
-        storage.removeItem("multica_token");
+      } catch (err) {
+        // Only clear the stored token on a genuine auth failure (401). For
+        // transient errors — network blips, backend rolling restarts, 5xx,
+        // aborted fetches — keep the token so the next initialize() (next
+        // page load or focus-refresh) can retry. The 401 path's token
+        // cleanup is handled upstream by ApiClient.handleUnauthorized via
+        // the onUnauthorized callback; we only need to reset the in-memory
+        // user + workspace state here.
+        if (err instanceof ApiError && err.status === 401) {
+          setCurrentWorkspace(null, null);
+        }
         set({ user: null, isLoading: false });
       }
     },
@@ -76,6 +85,7 @@ export function createAuthStore(options: AuthStoreOptions) {
         api.setToken(token);
       }
       onLogin?.();
+      identifyAnalytics(user.id, { email: user.email, name: user.name });
       set({ user });
       return user;
     },
@@ -87,6 +97,7 @@ export function createAuthStore(options: AuthStoreOptions) {
         api.setToken(token);
       }
       onLogin?.();
+      identifyAnalytics(user.id, { email: user.email, name: user.name });
       set({ user });
       return user;
     },
@@ -96,6 +107,7 @@ export function createAuthStore(options: AuthStoreOptions) {
       api.setToken(token);
       const user = await api.getMe();
       onLogin?.();
+      identifyAnalytics(user.id, { email: user.email, name: user.name });
       set({ user, isLoading: false });
       return user;
     },
@@ -107,7 +119,8 @@ export function createAuthStore(options: AuthStoreOptions) {
       }
       storage.removeItem("multica_token");
       api.setToken(null);
-      api.setWorkspaceId(null);
+      setCurrentWorkspace(null, null);
+      resetAnalytics();
       onLogout?.();
       set({ user: null });
     },

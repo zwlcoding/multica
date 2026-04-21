@@ -77,7 +77,7 @@ func autoWatchWorkspaces(cmd *cobra.Command) error {
 
 	if len(workspaces) == 0 {
 		var err error
-		workspaces, err = waitForOnboarding(cmd, client)
+		workspaces, err = waitForWorkspaceCreation(cmd, client)
 		if err != nil {
 			return err
 		}
@@ -93,13 +93,6 @@ func autoWatchWorkspaces(cmd *cobra.Command) error {
 		return err
 	}
 
-	var added int
-	for _, ws := range workspaces {
-		if cfg.AddWatchedWorkspace(ws.ID, ws.Name) {
-			added++
-		}
-	}
-
 	// Set default workspace if not set.
 	if cfg.WorkspaceID == "" {
 		cfg.WorkspaceID = workspaces[0].ID
@@ -109,21 +102,17 @@ func autoWatchWorkspaces(cmd *cobra.Command) error {
 		return err
 	}
 
-	if added > 0 {
-		fmt.Fprintf(os.Stderr, "\nWatching %d workspace(s):\n", len(workspaces))
-		for _, ws := range workspaces {
-			fmt.Fprintf(os.Stderr, "  • %s (%s)\n", ws.Name, ws.ID)
-		}
-	} else {
-		fmt.Fprintf(os.Stderr, "\nAll %d workspace(s) already watched.\n", len(workspaces))
+	fmt.Fprintf(os.Stderr, "\nFound %d workspace(s):\n", len(workspaces))
+	for _, ws := range workspaces {
+		fmt.Fprintf(os.Stderr, "  • %s (%s)\n", ws.Name, ws.ID)
 	}
 
 	return nil
 }
 
-// waitForOnboarding opens the web onboarding page and polls until the user
-// creates a workspace, returning the new workspace list.
-func waitForOnboarding(cmd *cobra.Command, client *cli.APIClient) ([]struct {
+// waitForWorkspaceCreation opens the web workspace-creation page and polls
+// until the user creates a workspace, returning the new workspace list.
+func waitForWorkspaceCreation(cmd *cobra.Command, client *cli.APIClient) ([]struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
 }, error) {
@@ -136,13 +125,13 @@ func waitForOnboarding(cmd *cobra.Command, client *cli.APIClient) ([]struct {
 		return nil, nil
 	}
 
-	onboardingURL := appURL + "/onboarding"
+	createWorkspaceURL := appURL + "/workspaces/new"
 
-	fmt.Fprintln(os.Stderr, "\nNo workspaces found. Opening onboarding in your browser...")
-	if err := openBrowser(onboardingURL); err != nil {
+	fmt.Fprintln(os.Stderr, "\nNo workspaces found. Opening workspace creation in your browser...")
+	if err := openBrowser(createWorkspaceURL); err != nil {
 		fmt.Fprintf(os.Stderr, "Could not open browser automatically.\n")
 	}
-	fmt.Fprintf(os.Stderr, "If the browser didn't open, visit:\n  %s\n", onboardingURL)
+	fmt.Fprintf(os.Stderr, "If the browser didn't open, visit:\n  %s\n", createWorkspaceURL)
 	fmt.Fprintln(os.Stderr, "\nWaiting for workspace creation...")
 
 	// Poll until a workspace appears or timeout (5 minutes).

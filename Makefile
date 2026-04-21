@@ -66,7 +66,8 @@ selfhost:
 		echo "  Frontend: http://localhost:$${FRONTEND_PORT:-3000}"; \
 		echo "  Backend:  http://localhost:$${PORT:-8080}"; \
 		echo ""; \
-		echo "Log in with any email + verification code: 888888"; \
+		echo "Log in: configure RESEND_API_KEY in .env for email codes,"; \
+		echo "        or set APP_ENV=development in .env (private networks only) to enable code 888888."; \
 		echo ""; \
 		echo "Next — install the CLI and connect your machine:"; \
 		echo "  brew install multica-ai/tap/multica"; \
@@ -104,6 +105,8 @@ start:
 	@echo "Backend: http://localhost:$(PORT)"
 	@echo "Frontend: http://localhost:$(FRONTEND_PORT)"
 	@bash scripts/ensure-postgres.sh "$(ENV_FILE)"
+	@echo "Running migrations..."
+	cd server && go run ./cmd/migrate up
 	@echo "Starting backend and frontend..."
 	@trap 'kill 0' EXIT; \
 		(cd server && go run ./cmd/server) & \
@@ -180,7 +183,7 @@ server:
 	cd server && go run ./cmd/server
 
 daemon:
-	@$(MAKE) multica MULTICA_ARGS="daemon"
+	@$(MAKE) multica MULTICA_ARGS="daemon restart --profile local"
 
 cli:
 	@$(MAKE) multica MULTICA_ARGS="$(MULTICA_ARGS)"

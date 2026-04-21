@@ -20,6 +20,10 @@ export type {
   RuntimePingStatus,
   RuntimeUpdate,
   RuntimeUpdateStatus,
+  RuntimeModel,
+  RuntimeModelListRequest,
+  RuntimeModelListStatus,
+  RuntimeModelsResult,
   IssueUsageSummary,
 } from "./agent";
 export type { Workspace, WorkspaceRepo, Member, MemberRole, User, MemberWithUser, Invitation } from "./workspace";
@@ -38,7 +42,6 @@ export type {
   Autopilot,
   AutopilotStatus,
   AutopilotExecutionMode,
-  AutopilotConcurrencyPolicy,
   AutopilotTrigger,
   AutopilotTriggerKind,
   AutopilotRun,

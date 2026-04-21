@@ -78,8 +78,8 @@ func openBrowser(url string) error {
 		cmd = "xdg-open"
 		args = []string{url}
 	case "windows":
-		cmd = "cmd"
-		args = []string{"/c", "start", "", url}
+		cmd = "rundll32"
+		args = []string{"url.dll,FileProtocolHandler", url}
 	default:
 		return fmt.Errorf("unsupported platform: %s", runtime.GOOS)
 	}
@@ -218,7 +218,6 @@ func runAuthLoginBrowser(cmd *cobra.Command) error {
 	profile := resolveProfile(cmd)
 	cfg, _ := cli.LoadCLIConfigForProfile(profile)
 	cfg.WorkspaceID = ""
-	cfg.WatchedWorkspaces = nil
 	cfg.Token = patResp.Token
 	cfg.ServerURL = serverURL
 	cfg.AppURL = appURL
@@ -261,7 +260,6 @@ func runAuthLoginToken(cmd *cobra.Command) error {
 	profile := resolveProfile(cmd)
 	cfg, _ := cli.LoadCLIConfigForProfile(profile)
 	cfg.WorkspaceID = ""
-	cfg.WatchedWorkspaces = nil
 	cfg.Token = token
 	cfg.ServerURL = serverURL
 	if err := cli.SaveCLIConfigForProfile(cfg, profile); err != nil {

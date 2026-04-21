@@ -3,6 +3,8 @@ import { ElectronAPI } from "@electron-toolkit/preload";
 interface DesktopAPI {
   /** Listen for auth token delivered via deep link. Returns an unsubscribe function. */
   onAuthToken: (callback: (token: string) => void) => () => void;
+  /** Listen for invitation IDs delivered via deep link. Returns an unsubscribe function. */
+  onInviteOpen: (callback: (invitationId: string) => void) => () => void;
   /** Open a URL in the default browser. */
   openExternal: (url: string) => Promise<void>;
   /** Hide macOS traffic lights for full-screen modals; restore when false. */
@@ -35,12 +37,6 @@ interface DaemonAPI {
   setTargetApiUrl: (url: string) => Promise<void>;
   syncToken: (token: string, userId: string) => Promise<void>;
   clearToken: () => Promise<void>;
-  listWatched: () => Promise<{
-    watched: Array<{ id: string; name: string; runtime_count?: number }>;
-    unwatched: string[];
-  }>;
-  watchWorkspace: (id: string, name: string) => Promise<void>;
-  unwatchWorkspace: (id: string) => Promise<void>;
   isCliInstalled: () => Promise<boolean>;
   getPrefs: () => Promise<DaemonPrefs>;
   setPrefs: (prefs: Partial<DaemonPrefs>) => Promise<DaemonPrefs>;
@@ -57,6 +53,10 @@ interface UpdaterAPI {
   onUpdateDownloaded: (callback: () => void) => () => void;
   downloadUpdate: () => Promise<void>;
   installUpdate: () => Promise<void>;
+  checkForUpdates: () => Promise<
+    | { ok: true; currentVersion: string; latestVersion: string; available: boolean }
+    | { ok: false; error: string }
+  >;
 }
 
 declare global {

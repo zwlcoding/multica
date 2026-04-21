@@ -11,6 +11,15 @@ const desktopAPI = {
       ipcRenderer.removeListener("auth:token", handler);
     };
   },
+  /** Listen for invitation IDs delivered via deep link */
+  onInviteOpen: (callback: (invitationId: string) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, invitationId: string) =>
+      callback(invitationId);
+    ipcRenderer.on("invite:open", handler);
+    return () => {
+      ipcRenderer.removeListener("invite:open", handler);
+    };
+  },
   /** Open a URL in the default browser */
   openExternal: (url: string) => ipcRenderer.invoke("shell:openExternal", url),
   /** Toggle immersive mode — hide macOS traffic lights for full-screen modals */
@@ -50,14 +59,6 @@ const daemonAPI = {
     ipcRenderer.invoke("daemon:sync-token", token, userId),
   clearToken: (): Promise<void> =>
     ipcRenderer.invoke("daemon:clear-token"),
-  listWatched: (): Promise<{
-    watched: Array<{ id: string; name: string; runtime_count?: number }>;
-    unwatched: string[];
-  }> => ipcRenderer.invoke("daemon:list-watched"),
-  watchWorkspace: (id: string, name: string): Promise<void> =>
-    ipcRenderer.invoke("daemon:watch-workspace", id, name),
-  unwatchWorkspace: (id: string): Promise<void> =>
-    ipcRenderer.invoke("daemon:unwatch-workspace", id),
   isCliInstalled: (): Promise<boolean> =>
     ipcRenderer.invoke("daemon:is-cli-installed"),
   getPrefs: (): Promise<{ autoStart: boolean; autoStop: boolean }> =>
@@ -95,6 +96,10 @@ const updaterAPI = {
   },
   downloadUpdate: () => ipcRenderer.invoke("updater:download"),
   installUpdate: () => ipcRenderer.invoke("updater:install"),
+  checkForUpdates: (): Promise<
+    | { ok: true; currentVersion: string; latestVersion: string; available: boolean }
+    | { ok: false; error: string }
+  > => ipcRenderer.invoke("updater:check"),
 };
 
 if (process.contextIsolated) {

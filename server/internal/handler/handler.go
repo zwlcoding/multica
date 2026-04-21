@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/multica-ai/multica/server/internal/analytics"
 	"github.com/multica-ai/multica/server/internal/auth"
 	"github.com/multica-ai/multica/server/internal/events"
 	"github.com/multica-ai/multica/server/internal/middleware"
@@ -31,6 +32,12 @@ type dbExecutor interface {
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 }
 
+type Config struct {
+	AllowSignup         bool
+	AllowedEmails       []string
+	AllowedEmailDomains []string
+}
+
 type Handler struct {
 	Queries          *db.Queries
 	DB               dbExecutor
@@ -42,17 +49,24 @@ type Handler struct {
 	EmailService     *service.EmailService
 	PingStore        *PingStore
 	UpdateStore      *UpdateStore
+	ModelListStore   *ModelListStore
 	Storage          storage.Storage
 	CFSigner         *auth.CloudFrontSigner
+	Analytics        analytics.Client
+	cfg              Config
 }
 
-func New(queries *db.Queries, txStarter txStarter, hub *realtime.Hub, bus *events.Bus, emailService *service.EmailService, store storage.Storage, cfSigner *auth.CloudFrontSigner) *Handler {
+func New(queries *db.Queries, txStarter txStarter, hub *realtime.Hub, bus *events.Bus, emailService *service.EmailService, store storage.Storage, cfSigner *auth.CloudFrontSigner, analyticsClient analytics.Client, cfg Config) *Handler {
 	var executor dbExecutor
 	if candidate, ok := txStarter.(dbExecutor); ok {
 		executor = candidate
 	}
 
-	taskSvc := service.NewTaskService(queries, hub, bus)
+	if analyticsClient == nil {
+		analyticsClient = analytics.NoopClient{}
+	}
+
+	taskSvc := service.NewTaskService(queries, txStarter, hub, bus)
 	return &Handler{
 		Queries:          queries,
 		DB:               executor,
@@ -64,8 +78,11 @@ func New(queries *db.Queries, txStarter txStarter, hub *realtime.Hub, bus *event
 		EmailService:     emailService,
 		PingStore:        NewPingStore(),
 		UpdateStore:      NewUpdateStore(),
+		ModelListStore:   NewModelListStore(),
 		Storage:          store,
 		CFSigner:         cfSigner,
+		Analytics:        analyticsClient,
+		cfg:              cfg,
 	}
 }
 
@@ -152,16 +169,15 @@ func requireUserID(w http.ResponseWriter, r *http.Request) (string, bool) {
 	return userID, true
 }
 
-func resolveWorkspaceID(r *http.Request) string {
-	// Prefer context value set by workspace middleware.
-	if id := middleware.WorkspaceIDFromContext(r.Context()); id != "" {
-		return id
-	}
-	workspaceID := r.URL.Query().Get("workspace_id")
-	if workspaceID != "" {
-		return workspaceID
-	}
-	return r.Header.Get("X-Workspace-ID")
+// resolveWorkspaceID returns the workspace UUID for this request. Delegates
+// to middleware.ResolveWorkspaceIDFromRequest so middleware-protected routes
+// and middleware-less routes (e.g. /api/upload-file) share identical
+// resolution behavior — including slug → UUID translation via the DB.
+//
+// Returns "" when no workspace identifier was provided or a slug was provided
+// but doesn't match any workspace.
+func (h *Handler) resolveWorkspaceID(r *http.Request) string {
+	return middleware.ResolveWorkspaceIDFromRequest(r, h.Queries)
 }
 
 // ctxMember returns the workspace member from context (set by workspace middleware).
@@ -272,7 +288,7 @@ func (h *Handler) loadIssueForUser(w http.ResponseWriter, r *http.Request, issue
 		return db.Issue{}, false
 	}
 
-	workspaceID := resolveWorkspaceID(r)
+	workspaceID := h.resolveWorkspaceID(r)
 	if workspaceID == "" {
 		writeError(w, http.StatusBadRequest, "workspace_id is required")
 		return db.Issue{}, false
@@ -362,7 +378,7 @@ func (h *Handler) loadAgentForUser(w http.ResponseWriter, r *http.Request, agent
 		return db.Agent{}, false
 	}
 
-	workspaceID := resolveWorkspaceID(r)
+	workspaceID := h.resolveWorkspaceID(r)
 	if workspaceID == "" {
 		writeError(w, http.StatusBadRequest, "workspace_id is required")
 		return db.Agent{}, false
@@ -385,7 +401,7 @@ func (h *Handler) loadInboxItemForUser(w http.ResponseWriter, r *http.Request, i
 		return db.InboxItem{}, false
 	}
 
-	workspaceID := resolveWorkspaceID(r)
+	workspaceID := h.resolveWorkspaceID(r)
 	if workspaceID == "" {
 		writeError(w, http.StatusBadRequest, "workspace_id is required")
 		return db.InboxItem{}, false

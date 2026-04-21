@@ -11,6 +11,7 @@ export interface RuntimeDevice {
   name: string;
   runtime_mode: AgentRuntimeMode;
   provider: string;
+  launch_header: string;
   status: "online" | "offline";
   device_info: string;
   metadata: Record<string, unknown>;
@@ -48,9 +49,12 @@ export interface Agent {
   runtime_mode: AgentRuntimeMode;
   runtime_config: Record<string, unknown>;
   custom_env: Record<string, string>;
+  custom_args: string[];
+  custom_env_redacted: boolean;
   visibility: AgentVisibility;
   status: AgentStatus;
   max_concurrent_tasks: number;
+  model: string;
   owner_id: string | null;
   skills: Skill[];
   created_at: string;
@@ -67,8 +71,10 @@ export interface CreateAgentRequest {
   runtime_id: string;
   runtime_config?: Record<string, unknown>;
   custom_env?: Record<string, string>;
+  custom_args?: string[];
   visibility?: AgentVisibility;
   max_concurrent_tasks?: number;
+  model?: string;
 }
 
 export interface UpdateAgentRequest {
@@ -79,9 +85,11 @@ export interface UpdateAgentRequest {
   runtime_id?: string;
   runtime_config?: Record<string, unknown>;
   custom_env?: Record<string, string>;
+  custom_args?: string[];
   visibility?: AgentVisibility;
   status?: AgentStatus;
   max_concurrent_tasks?: number;
+  model?: string;
 }
 
 // Skills
@@ -181,4 +189,37 @@ export interface RuntimeUpdate {
   error?: string;
   created_at: string;
   updated_at: string;
+}
+
+export interface RuntimeModel {
+  id: string;
+  label: string;
+  provider?: string;
+  default?: boolean;
+}
+
+export type RuntimeModelListStatus =
+  | "pending"
+  | "running"
+  | "completed"
+  | "failed"
+  | "timeout";
+
+export interface RuntimeModelListRequest {
+  id: string;
+  runtime_id: string;
+  status: RuntimeModelListStatus;
+  models?: RuntimeModel[];
+  supported: boolean;
+  error?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+// Result shape returned by resolveRuntimeModels — includes the
+// "supported" bit so the UI can distinguish "no models discovered"
+// from "provider does not honour per-agent model selection".
+export interface RuntimeModelsResult {
+  models: RuntimeModel[];
+  supported: boolean;
 }
