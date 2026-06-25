@@ -7,6 +7,7 @@
     "highlight": "ハイライト",
     "link": "リンク",
     "list": "リスト",
+    "task_list": "タスクリスト",
     "quote": "引用",
     "url_aria_label": "URL",
     "heading_dropdown": {
@@ -80,6 +81,9 @@
   },
   "slash_command": {
     "no_skills_configured": "設定済みスキルなし",
-    "no_results": "一致するスキルなし"
+    "no_results": "一致するスキルなし",
+    "commands": {
+      "note": "メモを追加 — エージェントをトリガーしません"
+    }
   }
 }
